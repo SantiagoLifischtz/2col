@@ -1,5 +1,5 @@
 use std::process::{Command, Stdio, Output};
-use std::env;
+use std::{env, io};
 use std::fs::File;
 use std::io::Write;
 
@@ -8,31 +8,17 @@ type Frame = Vec<Pixel>;
 type PackedFrame = Vec<u64>;
 
 fn ffmpeg_command(input: &String) -> Output {
-    Command::new("ffmpeg")
-    .args(["-i",input,"-f","rawvideo","-vf","scale=640:360","-fpsmax","10","-pix_fmt","rgb24","-"])
+    let output = Command::new("ffmpeg")
+    .args(["-i",input,"-f","rawvideo","-vf","scale=640:360","-frames:v","500","-fpsmax","10","-pix_fmt","rgb24","-"])
     .stdout(Stdio::piped())
     .output()
-    .expect("ffmpeg error occurred")
+    .expect("ffmpeg error occurred");
+
+    output
 }
 
-fn group_vec<T: Clone>(v: &Vec<T>, n: usize) -> Vec<Vec<T>>{
-    let length = v.len();
-    if length%n != 0 {
-        panic!("Vector length is not a multiple of n, cannot group")
-    }
-
-    let group_count = length/n;
-    let mut out: Vec<Vec<T>> = Vec::new();
-
-    for i in 0..group_count {
-        let mut group: Vec<T> = Vec::new();
-        for j in 0..n {
-            group.push(v[i+j].clone());
-        }
-        out.push(group);
-    }
-
-    out
+fn group_vec<T: Clone>(v: &Vec<T>, n: usize) -> Vec<Vec<T>> {
+    v.chunks(n).map(|chunk| chunk.to_vec()).collect()
 }
 
 fn white_threshold(v: &Pixel) -> bool {
@@ -71,9 +57,9 @@ fn get_frame_string(diff: PackedFrame) -> String {
     let mut out = String::new();
     for i in 0..diff.len() {
         for j in 0..64 {
-            let bit: u8 = ((diff[i] >> j) | 1) as u8;
+            let bit: u8 = ((diff[i] >> j) & 1) as u8;
             if bit == 1 {
-                let index = (i+j).to_string();
+                let index = (i*64+j).to_string();
                 out.push_str(index.as_str());
                 out.push(' ');
             }
@@ -91,13 +77,29 @@ fn main() {
     }
     let input_filename = &args[1];
 
+    println!("Running ffmpeg...");
+    io::stdout().flush().unwrap();
     let output = ffmpeg_command(input_filename);
+    println!(" Done");
+
+    if output.stdout.len() == 0 {
+        println!("this should not print");
+    }
+
+    print!("Grouping RGB into pixels...");
+    io::stdout().flush().unwrap();
     let video_color_data = output.stdout;
     let video_pixel_data: Vec<Pixel> = group_vec(&video_color_data, 3);
-
+    println!(" Done");
+    
+    print!("Grouping video into frames...");
+    io::stdout().flush().unwrap();
     let frame_size = 640*360;
     let frame_data: Vec<Frame> = group_vec(&video_pixel_data, frame_size);
+    println!(" Done");
 
+    print!("Calculating frame deltas...");
+    io::stdout().flush().unwrap();
     let mut diff: Vec<PackedFrame> = Vec::new();
     let mut prev_frame = pack_frame_bits(&frame_data[0]);
     
@@ -106,11 +108,15 @@ fn main() {
         diff.push(xor_packed_frames(&prev_frame, &frame));
         prev_frame = frame;
     }
+    println!(" Done");
 
-    let mut file = File::create("output.2col").unwrap();
+    print!("Writing output file...");
+    io::stdout().flush().unwrap();
+    let mut file = File::create("output/output.2col").unwrap();
 
     for frame_delta in diff {
         let line = get_frame_string(frame_delta);
         file.write_all(line.as_bytes()).unwrap();
     }
+    println!(" Done");
 }
