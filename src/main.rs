@@ -1,21 +1,11 @@
-use std::process::{ChildStdout, Command, Output, Stdio};
-use std::{env, io, vec};
+use std::process::{ChildStdout, Command, Stdio};
+use std::{env, vec};
 use std::fs::File;
 use std::io::{Read, Write};
 
 type Pixel = Vec<u8>;
 type Frame = Vec<Pixel>;
 type FrameBitmap = Vec<u64>;
-
-fn ffmpeg_command(input: &String) -> Output {
-    let output = Command::new("ffmpeg")
-    .args(["-i",input,"-f","rawvideo","-vf","scale=640:360","-frames:v","500","-fpsmax","10","-pix_fmt","rgb24","-"])
-    .stdout(Stdio::piped())
-    .output()
-    .expect("ffmpeg error occurred");
-
-    output
-}
 
 fn ffmpeg_stream(input: &String) -> ChildStdout {
     let mut child = Command::new("ffmpeg")
@@ -103,57 +93,6 @@ fn run_pipeline(stream: &mut ChildStdout, frame_byte_size: usize, output_file: &
             Err(_) => break
         }
     }
-}
-
-fn old_pipeline() {
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        panic!("Input file required");
-    }
-    let input_filename = &args[1];
-
-    println!("Running ffmpeg...");
-    io::stdout().flush().unwrap();
-    let output = ffmpeg_command(input_filename);
-    println!(" Done");
-
-    if output.stdout.len() == 0 {
-        println!("this should not print");
-    }
-
-    print!("Grouping RGB into pixels...");
-    io::stdout().flush().unwrap();
-    let video_color_data = output.stdout;
-    let video_pixel_data: Vec<Pixel> = group_vec(&video_color_data, 3);
-    println!(" Done");
-    
-    print!("Grouping video into frames...");
-    io::stdout().flush().unwrap();
-    let frame_size = 640*360;
-    let frame_data: Vec<Frame> = group_vec(&video_pixel_data, frame_size);
-    println!(" Done");
-
-    print!("Calculating frame deltas...");
-    io::stdout().flush().unwrap();
-    let mut diff: Vec<FrameBitmap> = Vec::new();
-    let mut prev_frame = pack_pixels(&frame_data[0]);
-    
-    for i in 1..frame_data.len() {
-        let frame = pack_pixels(&frame_data[i]);
-        diff.push(xor_bitmaps(&prev_frame, &frame));
-        prev_frame = frame;
-    }
-    println!(" Done");
-
-    print!("Writing output file...");
-    io::stdout().flush().unwrap();
-    let mut file = File::create("output/output.2col").unwrap();
-
-    for frame_delta in diff {
-        let line = get_frame_bytes(frame_delta);
-        file.write_all(&line).unwrap();
-    }
-    println!(" Done");
 }
 
 fn main() {
