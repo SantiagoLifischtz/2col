@@ -1,6 +1,7 @@
 use std::process::{ChildStdout, Command, Stdio};
 use std::{env, vec};
 use std::fs::File;
+use std::fs;
 use std::io::{Read, Write};
 
 type Pixel = Vec<u8>;
@@ -50,22 +51,32 @@ fn xor_bitmaps(f1: &FrameBitmap, f2: &FrameBitmap) -> FrameBitmap {
     out
 }
 
-// TODO: return pure data instead of a string
-fn get_frame_bytes(diff: FrameBitmap) -> Vec<u8> {
-    let mut out = String::new();
+fn get_changed_indices(diff: &FrameBitmap) -> Vec<u32> {
+    let mut out: Vec<u32> = Vec::new();
+
     for i in 0..diff.len() {
         for j in 0..64 {
             let bit: u8 = ((diff[i] >> j) & 1) as u8;
             if bit == 1 {
-                let index = (i*64+j).to_string();
-                out.push_str(index.as_str());
-                out.push(' ');
+                let index: u32 = (i as u32)*64+j;
+                out.push(index);
             }
         }
     }
-    out.push('\n');
 
-    out.into_bytes()
+    out
+}
+
+fn get_frame_bytes(indices: &Vec<u32>) -> Vec<u8> {
+    let mut out = Vec::new();
+
+    out.extend_from_slice(&(indices.len() as u32).to_le_bytes());
+
+    for &idx in indices {
+        out.extend_from_slice(&idx.to_le_bytes());
+    }
+
+    out
 }
 
 fn get_frame_bitmap(rgb24_frame: &Vec<u8>) -> FrameBitmap {
@@ -88,7 +99,8 @@ fn run_pipeline(stream: &mut ChildStdout, frame_byte_size: usize, output_file: &
                 let diff = xor_bitmaps(&prev_frame, &bitmap);
                 prev_frame = bitmap;
 
-                output_file.write_all(&get_frame_bytes(diff)).unwrap();
+                let indices = get_changed_indices(&diff);
+                output_file.write_all(&get_frame_bytes(&indices)).unwrap();
             }
             Err(_) => break
         }
@@ -102,6 +114,7 @@ fn main() {
     }
     let input_filename = &args[1];
 
+    fs::create_dir_all("output").unwrap();
     let mut output_file = File::create("output/output.2col").unwrap();
     let mut stream = ffmpeg_stream(input_filename);
     let frame_size = 640*360*3; // width * height * bytes_per_pixel

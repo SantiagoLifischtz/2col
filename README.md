@@ -1,5 +1,7 @@
 # Note: Don't use this yet! WIP
 
+As of right now, the format is very big, way bigger than it should be.
+
 # 2col - Video format to play Bad Apple on anything
 
 2col encodes frame data by only saving the pixels that differ from the previous frame.
@@ -16,7 +18,7 @@ The whole joke of Bad Apple is to play it on anything that can display two color
 
 ### Format explanation
 
-Each line in the output file is a set of indices, calculated as `x * width + y`. They correspond to the pixels that have swapped color since the last frame, the rest staying the same.
+Frames are encoded as runs of little-endian 32-bit integers. The first four bytes of every frame indicate the amount of pixels that were changed. Each following group of four bytes is an index of a pixel that was changed since the last frame.
 
 ### How to use
 
@@ -38,9 +40,11 @@ You can then use the executable anywhere after that
 ### Roadmap
 
 Short term: 
+- Compress the format
 - Add support for any output resolution and framerate
 - Add the two colors, resolution and framerate into the file.
 
 Long term:
+- KEEP COMPRESSING
 - Make a tool to convert back to other video formats
 - Make a simple 2col video player
