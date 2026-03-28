@@ -8,6 +8,28 @@ type Pixel = Vec<u8>;
 type Frame = Vec<Pixel>;
 type FrameBitmap = Vec<u64>;
 
+#[derive(Clone, Copy)]
+struct ChangeRun {
+    start: u32,
+    length: u32,
+}
+
+impl ChangeRun {
+    pub fn new() -> Self {
+        Self {
+            start: 0,
+            length: 0
+        }
+    }
+    
+    pub fn to_le_bytes(&self) -> [u8; 8] {
+        let mut bytes = [0u8; 8];
+        bytes[..4].copy_from_slice(&self.start.to_le_bytes());
+        bytes[4..].copy_from_slice(&self.length.to_le_bytes());
+        bytes
+    }
+}
+
 fn ffmpeg_stream(input: &String) -> ChildStdout {
     let mut child = Command::new("ffmpeg")
     .args(["-i",input,"-f","rawvideo","-vf","scale=640:360","-fpsmax","10","-pix_fmt","rgb24","-"])
@@ -51,15 +73,31 @@ fn xor_bitmaps(f1: &FrameBitmap, f2: &FrameBitmap) -> FrameBitmap {
     out
 }
 
-fn get_changed_indices(diff: &FrameBitmap) -> Vec<u32> {
-    let mut out: Vec<u32> = Vec::new();
+fn get_change_runs(diff: &FrameBitmap) -> Vec<ChangeRun> {
+    let mut out: Vec<ChangeRun> = Vec::new();
+
+    let mut current_run: ChangeRun = ChangeRun::new();
 
     for i in 0..diff.len() {
         for j in 0..64 {
             let bit: u8 = ((diff[i] >> j) & 1) as u8;
             if bit == 1 {
-                let index: u32 = (i as u32)*64+j;
-                out.push(index);
+                // Found a 1
+                if current_run.length == 0 {
+                    // Start a new run if we weren't on one
+                    let index: u32 = (i as u32)*64+j;
+                    current_run.start = index;
+                }
+                // Otherwise continue the run
+                current_run.length += 1;
+            }
+            else {
+                // Found a 0
+                if current_run.length > 0 {
+                    // End and save the run if we were on one 
+                    out.push(current_run);
+                    current_run = ChangeRun::new();
+                }
             }
         }
     }
@@ -67,13 +105,13 @@ fn get_changed_indices(diff: &FrameBitmap) -> Vec<u32> {
     out
 }
 
-fn get_frame_bytes(indices: &Vec<u32>) -> Vec<u8> {
+fn get_frame_change_bytes(change_runs: &Vec<ChangeRun>) -> Vec<u8> {
     let mut out = Vec::new();
 
-    out.extend_from_slice(&(indices.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(change_runs.len() as u32).to_le_bytes());
 
-    for &idx in indices {
-        out.extend_from_slice(&idx.to_le_bytes());
+    for &cr in change_runs {
+        out.extend_from_slice(&cr.to_le_bytes());
     }
 
     out
@@ -99,8 +137,8 @@ fn run_pipeline(stream: &mut ChildStdout, frame_byte_size: usize, output_file: &
                 let diff = xor_bitmaps(&prev_frame, &bitmap);
                 prev_frame = bitmap;
 
-                let indices = get_changed_indices(&diff);
-                output_file.write_all(&get_frame_bytes(&indices)).unwrap();
+                let changes = get_change_runs(&diff);
+                output_file.write_all(&get_frame_change_bytes(&changes)).unwrap();
             }
             Err(_) => break
         }
