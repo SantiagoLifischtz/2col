@@ -1,6 +1,6 @@
 # Note: Don't use this yet! WIP
 
-As of right now, the format is very big, way bigger than it should be.
+As of right now, some critical things are missing from the format.
 
 # 2col - Video format to play Bad Apple on anything
 
@@ -18,7 +18,21 @@ The whole joke of Bad Apple is to play it on anything that can display two color
 
 ### Format explanation
 
-Frames are encoded as runs of little-endian 32-bit integers. The first four bytes of every frame indicate the amount of pixels that were changed. Each following group of four bytes is an index of a pixel that was changed since the last frame.
+Frames are encoded as runs of unsigned little-endian 32-bit integers. They are seen as an array, where `y*width+x` is the index (left-right, top-down).
+
+#### Change runs
+
+A change run represents a set of consecutive pixels that all have changed their color since the last frame. A single change run occupies 8 bytes, the first 4 being the starting index, and the other being the amount of pixels until the next 0.
+
+For example, a run of 12 changes starting at index 628 would be encoded as the hex values:
+
+`74020000 0C000000`
+
+#### Frame format
+
+The first 4 bytes of a frame indicate the amount of change runs in that frame. Multiplying this number by 8 yields the amount of bytes that frame occupies. Right after that, the change runs of that frame are found consecutively.
+
+Empty frames are encoded as 4 bytes set to 0, representing zero change runs are found in that frame.
 
 ### How to use
 
